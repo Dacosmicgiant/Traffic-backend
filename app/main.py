@@ -5,6 +5,7 @@ import logging
 from app.config import settings
 from app.services.database import DatabaseService
 from app.routes import conversations_router, chat_router
+from app.routes import conversations_router, chat_router, auth_router
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -55,6 +56,7 @@ app.add_middleware(
 # Include routers
 app.include_router(conversations_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
+app.include_router(auth_router, prefix="/api/v1")
 
 
 @app.get("/")

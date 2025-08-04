@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Literal, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 
 from app.models.conversation import PyObjectId
@@ -10,7 +10,7 @@ class MessageBase(BaseModel):
     """Base message model with common fields"""
     role: Literal["user", "assistant"] = Field(..., description="Who sent the message")
     content: str = Field(..., min_length=1, description="Message content")
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class MessageCreate(MessageBase):

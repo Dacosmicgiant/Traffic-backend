@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field, GetJsonSchemaHandler
 from pydantic.json_schema import JsonSchemaValue
 from pydantic_core import core_schema
 from typing import Optional, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from bson import ObjectId
 
 
@@ -23,7 +23,7 @@ class PyObjectId(ObjectId):
         )
 
     @classmethod
-    def validate(cls, value):
+    def validate(cls, value, _info=None):  # Add _info parameter to handle 3 arguments
         """Validate that the value is a valid ObjectId"""
         if isinstance(value, ObjectId):
             return value
@@ -43,8 +43,8 @@ class ConversationBase(BaseModel):
     """Base conversation model with common fields"""
     title: str = Field(..., min_length=1, max_length=200)
     user_id: Optional[str] = Field(default="default_user")  # For future user system
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 class ConversationCreate(ConversationBase):

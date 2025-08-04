@@ -6,3 +6,7 @@ pydantic-settings
 google-generativeai
 python-dotenv
 pymongo
+python-jose[cryptography]
+passlib[bcrypt]
+python-multipart
+pydantic[email]

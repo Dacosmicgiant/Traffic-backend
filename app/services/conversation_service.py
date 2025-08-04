@@ -3,7 +3,7 @@ from app.models.conversation import ConversationCreate, ConversationInDB, Conver
 from app.models.message import MessageInDB
 from typing import List, Optional
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 logger = logging.getLogger(__name__)
@@ -119,7 +119,7 @@ class ConversationService:
             result = await self.conversations_collection.update_one(
                 {"_id": ObjectId(conversation_id)},
                 {
-                    "$set": {"updated_at": datetime.utcnow()},
+                    "$set": {"updated_at": datetime.now(timezone.utc)},
                     "$inc": {"message_count": 1}  # Increment message count
                 }
             )

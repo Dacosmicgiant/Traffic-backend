@@ -4,8 +4,10 @@ from app.services.database import get_database
 from app.services.ai_service import AIServiceInterface, get_ai_service
 from app.services.conversation_service import ConversationService
 from app.services.message_service import MessageService
+from app.services.dependencies import get_current_active_user  # Add this import
 from app.models.message import ChatRequest, ChatResponse, MessageCreate
 from app.models.conversation import ConversationCreate
+from app.models.user import UserResponse  # Add this import
 import logging
 
 logger = logging.getLogger(__name__)
@@ -17,6 +19,7 @@ router = APIRouter(prefix="/chat", tags=["chat"])
 @router.post("/ask", response_model=ChatResponse)
 async def ask_question(
     request: ChatRequest,
+    current_user: UserResponse = Depends(get_current_active_user),  # Add authentication
     db: AsyncIOMotorDatabase = Depends(get_database),
     ai_service: AIServiceInterface = Depends(get_ai_service)
 ):
@@ -29,6 +32,7 @@ async def ask_question(
     - **conversation_id**: (Optional) Continue an existing conversation
     
     If no conversation_id is provided, a new conversation will be created.
+    Requires authentication: Include JWT token in Authorization header.
     """
     try:
         conversation_service = ConversationService(db)
@@ -36,19 +40,30 @@ async def ask_question(
         
         # Step 1: Handle conversation creation or validation
         if request.conversation_id:
-            # Validate existing conversation
+            # Validate existing conversation and check ownership
             conversation = await conversation_service.get_conversation(request.conversation_id)
             if not conversation:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Conversation {request.conversation_id} not found"
                 )
+            
+            # Check if conversation belongs to current user
+            if conversation.user_id != current_user.id:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Access denied: This conversation doesn't belong to you"
+                )
+            
             conversation_id = request.conversation_id
         else:
-            # Create new conversation with auto-generated title
+            # Create new conversation with auto-generated title for the authenticated user
             title = _generate_conversation_title(request.message)
             new_conversation = await conversation_service.create_conversation(
-                ConversationCreate(title=title)
+                ConversationCreate(
+                    title=title,
+                    user_id=current_user.id  # Use authenticated user's ID
+                )
             )
             conversation_id = new_conversation.id
         
@@ -83,7 +98,7 @@ async def ask_question(
         await conversation_service.update_conversation_timestamp(conversation_id)
         
         # Step 7: Return response
-        logger.info(f"Processed question in conversation {conversation_id}")
+        logger.info(f"Processed question in conversation {conversation_id} for user {current_user.email}")
         return ChatResponse(
             response=ai_response,
             conversation_id=conversation_id,
