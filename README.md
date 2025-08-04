@@ -7,11 +7,13 @@ A FastAPI backend for an AI assistant specializing in Indian traffic laws and re
 ## Features
 
 - **AI-Powered Responses**: Uses Google Gemini API with specialized prompts for Indian traffic law context
-- **Conversation Management**: Create, retrieve, and manage conversation threads
+- **User Authentication**: JWT-based authentication with registration and login
+- **Secure Conversations**: User-specific conversation management with access control
 - **Message History**: Maintains full conversation context for better AI responses
 - **Modular Architecture**: Easy to extend and modify with clean separation of concerns
 - **Database Integration**: MongoDB Atlas for scalable data storage
 - **API Documentation**: Auto-generated Swagger/OpenAPI documentation
+- **Access Control**: Users can only access their own conversations and data
 
 ## Technology Stack
 
@@ -33,21 +35,33 @@ indian_traffic_ai/
 │   ├── models/                # Pydantic data models
 │   │   ├── __init__.py
 │   │   ├── conversation.py    # Conversation data models
-│   │   └── message.py         # Message data models
+│   │   ├── message.py         # Message data models
+│   │   └── user.py           # User and authentication models
 │   ├── services/              # Business logic layer
 │   │   ├── __init__.py
 │   │   ├── ai_service.py      # AI service abstraction
+│   │   ├── auth_service.py    # Authentication and JWT handling
 │   │   ├── database.py        # Database connection management
 │   │   ├── conversation_service.py  # Conversation operations
-│   │   └── message_service.py # Message operations
+│   │   ├── message_service.py # Message operations
+│   │   ├── user_service.py    # User operations
+│   │   └── dependencies.py    # FastAPI authentication dependencies
 │   └── routes/                # API endpoints
 │       ├── __init__.py
+│       ├── auth.py           # Authentication endpoints
 │       ├── conversations.py   # Conversation endpoints
 │       └── chat.py           # Chat/AI interaction endpoints
+├── tests/                     # Test files
+│   ├── test_api.py           # Basic API testing
+│   ├── test_auth_endpoints.py # Authentication testing
+│   ├── test_authenticated_api.py # Complete system testing
+│   └── debug_registration.py  # Debug utilities
 ├── requirements.txt           # Python dependencies
 ├── .env.example              # Environment variables template
 ├── .env                      # Your actual environment variables
-├── test_api.py              # API testing script
+├── Dockerfile                # Container deployment
+├── .dockerignore            # Docker optimization
+├── Procfile                 # Heroku deployment
 └── README.md                # This file
 ```
 
@@ -83,6 +97,17 @@ indian_traffic_ai/
    ```bash
    pip install -r requirements.txt
    ```
+
+   **Dependencies include**:
+
+   - `fastapi` - Web framework
+   - `uvicorn` - ASGI server
+   - `motor` - Async MongoDB driver
+   - `pydantic` - Data validation
+   - `google-generativeai` - Gemini API client
+   - `python-jose[cryptography]` - JWT token handling
+   - `passlib[bcrypt]` - Password hashing
+   - `python-multipart` - Form data support
 
 4. **Set up environment variables**:
 
@@ -120,14 +145,21 @@ indian_traffic_ai/
 
 ## API Endpoints
 
-### Chat Endpoints
+### Authentication Endpoints
+
+- `POST /api/v1/auth/register` - Register a new user account
+- `POST /api/v1/auth/login` - Login with email and password
+- `GET /api/v1/auth/me` - Get current user information
+- `POST /api/v1/auth/logout` - Logout current user
+
+### Chat Endpoints (🔒 Requires Authentication)
 
 - `POST /api/v1/chat/ask` - Ask a question about Indian traffic laws
 
-### Conversation Management
+### Conversation Management (🔒 Requires Authentication)
 
 - `POST /api/v1/conversations/` - Create a new conversation
-- `GET /api/v1/conversations/` - Get all conversations
+- `GET /api/v1/conversations/` - Get all user's conversations
 - `GET /api/v1/conversations/{id}` - Get specific conversation
 - `GET /api/v1/conversations/{id}/messages` - Get conversation messages
 - `DELETE /api/v1/conversations/{id}` - Delete conversation
@@ -139,11 +171,37 @@ indian_traffic_ai/
 
 ## Usage Examples
 
-### Ask a Question
+### Authentication Flow
 
 ```bash
+# 1. Register a new user
+curl -X POST "http://localhost:8000/api/v1/auth/register" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "full_name": "John Doe",
+    "password": "securepassword123"
+  }'
+
+# Response includes access_token
+# {"access_token": "eyJ...", "token_type": "bearer", "user": {...}}
+
+# 2. Or login with existing account
+curl -X POST "http://localhost:8000/api/v1/auth/login" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "securepassword123"
+  }'
+```
+
+### Ask a Question (Authenticated)
+
+```bash
+# Use the token from registration/login
 curl -X POST "http://localhost:8000/api/v1/chat/ask" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -d '{"message": "What is the penalty for not wearing a helmet?"}'
 ```
 
@@ -152,6 +210,7 @@ curl -X POST "http://localhost:8000/api/v1/chat/ask" \
 ```bash
 curl -X POST "http://localhost:8000/api/v1/chat/ask" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -d '{
     "message": "What about for two-wheeler riders?",
     "conversation_id": "60f8b2c8e8b4a1234567890a"
@@ -163,7 +222,15 @@ curl -X POST "http://localhost:8000/api/v1/chat/ask" \
 ```bash
 curl -X POST "http://localhost:8000/api/v1/conversations/" \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
   -d '{"title": "Traffic Fine Questions"}'
+```
+
+### Get User's Conversations
+
+```bash
+curl -X GET "http://localhost:8000/api/v1/conversations/" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN"
 ```
 
 ## Architecture Highlights
@@ -197,13 +264,27 @@ def get_ai_service() -> AIServiceInterface:
 
 ## Database Schema
 
+### Users Collection
+
+```json
+{
+  "_id": "ObjectId",
+  "email": "string (unique)",
+  "full_name": "string",
+  "hashed_password": "string",
+  "is_active": "boolean",
+  "created_at": "datetime",
+  "updated_at": "datetime"
+}
+```
+
 ### Conversations Collection
 
 ```json
 {
   "_id": "ObjectId",
   "title": "string",
-  "user_id": "string",
+  "user_id": "string (references Users._id)",
   "created_at": "datetime",
   "updated_at": "datetime",
   "message_count": "integer"
@@ -215,7 +296,7 @@ def get_ai_service() -> AIServiceInterface:
 ```json
 {
   "_id": "ObjectId",
-  "conversation_id": "string",
+  "conversation_id": "string (references Conversations._id)",
   "role": "user|assistant",
   "content": "string",
   "timestamp": "datetime"
@@ -224,23 +305,98 @@ def get_ai_service() -> AIServiceInterface:
 
 ## Testing
 
-### Manual Testing
+### Automated Testing
 
-Run the included test script:
+Run the comprehensive test suite:
 
 ```bash
-python test_api.py
+# Test basic authentication
+python tests/test_auth_endpoints.py
+
+# Test complete authenticated system
+python tests/test_authenticated_api.py
+
+# Test basic API functionality
+python tests/test_api.py
 ```
+
+### Manual Testing Workflow
+
+1. **Start the server**:
+
+   ```bash
+   uvicorn app.main:app --reload
+   ```
+
+2. **Register a new user** (via API docs at http://localhost:8000/docs):
+
+   - Go to `/api/v1/auth/register`
+   - Provide email, full_name, and password
+   - Copy the `access_token` from response
+
+3. **Authorize in API docs**:
+
+   - Click "Authorize" button at top of docs page
+   - Enter: `Bearer YOUR_ACCESS_TOKEN`
+   - Click "Authorize"
+
+4. **Test chat functionality**:
+
+   - Use `/api/v1/chat/ask` endpoint
+   - Ask questions like "What is the speed limit in India?"
+   - Try follow-up questions with the same `conversation_id`
+
+5. **Test conversation management**:
+   - View your conversations with `/api/v1/conversations/`
+   - Get specific conversation details
+   - View messages in conversations
 
 ### Interactive Testing
 
-Use the automatic API documentation:
+Use the automatic API documentation at:
 
 ```
 http://localhost:8000/docs
 ```
 
-## Deployment
+### Test Data Examples
+
+Use these sample questions for testing:
+
+- "What documents do I need for a driving license in India?"
+- "What is the penalty for overspeeding?"
+- "How much is the fine for not wearing a helmet?"
+- "What are the rules for parking in residential areas?"
+- "Do I need insurance for a motorcycle?"
+
+## Security Features
+
+### Password Security
+
+- Bcrypt hashing for all passwords
+- Minimum password length requirements
+- No plain text password storage
+
+### JWT Token Security
+
+- Stateless authentication using JWT tokens
+- 30-minute token expiration
+- Bearer token authentication scheme
+- Secure token verification
+
+### Access Control
+
+- User-specific data isolation
+- Conversation ownership validation
+- Protected routes requiring authentication
+- Proper HTTP status codes for unauthorized access
+
+### Data Validation
+
+- Pydantic models for all API inputs
+- Email format validation
+- Comprehensive error handling
+- Input sanitization
 
 ### Environment Variables for Production
 
@@ -278,11 +434,12 @@ This application is ready to deploy on:
 
 ## Future Enhancements
 
-### User Authentication
+### Advanced Authentication
 
-- JWT-based authentication system
-- User registration and login
-- Protected routes and user-specific data
+- Password reset functionality
+- Email verification for new accounts
+- OAuth integration (Google, Facebook login)
+- Role-based access control (admin, user roles)
 
 ### Additional Features
 
@@ -291,6 +448,7 @@ This application is ready to deploy on:
 - Export conversation history
 - Rate limiting and API quotas
 - Caching layer for improved performance
+- Real-time chat with WebSocket support
 
 ### AI Improvements
 
@@ -298,6 +456,7 @@ This application is ready to deploy on:
 - Custom training on Indian traffic law datasets
 - Image recognition for traffic signs
 - Voice input/output capabilities
+- Multi-language support (Hindi, regional languages)
 
 ## Troubleshooting
 
@@ -315,10 +474,30 @@ This application is ready to deploy on:
    - Check API quota and usage limits
    - Ensure API key has proper permissions
 
-3. **Import Errors**:
+3. **Authentication Issues**:
+
+   - **401 Unauthorized**: Check JWT token format and validity
+   - **403 Forbidden**: User trying to access resources they don't own
+   - **Token expired**: Tokens expire in 30 minutes, need to login again
+   - **Invalid credentials**: Check email/password combination
+
+4. **Import Errors**:
+
    - Ensure virtual environment is activated
    - Verify all dependencies are installed
    - Check Python path configuration
+
+5. **Validation Errors**:
+   - Check email format (must be valid email)
+   - Ensure password meets minimum length (6 characters)
+   - Verify all required fields are provided
+
+### Debug Tips
+
+1. **Check server logs**: Most errors are logged with detailed information
+2. **Use API docs**: Test endpoints interactively at `/docs`
+3. **Verify environment variables**: Ensure `.env` file has all required values
+4. **Test authentication flow**: Register → Login → Use token for protected endpoints
 
 ## Contributing
 
