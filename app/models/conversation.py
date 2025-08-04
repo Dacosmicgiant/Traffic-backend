@@ -1,25 +1,42 @@
-from pydantic import BaseModel, Field
-from typing import Optional
+from pydantic import BaseModel, Field, GetJsonSchemaHandler
+from pydantic.json_schema import JsonSchemaValue
+from pydantic_core import core_schema
+from typing import Optional, Any
 from datetime import datetime
 from bson import ObjectId
 
 
 class PyObjectId(ObjectId):
-    """Custom ObjectId type for Pydantic models"""
+    """Custom ObjectId type for Pydantic v2 models"""
     
     @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: Any
+    ) -> core_schema.CoreSchema:
+        """
+        Return a Pydantic CoreSchema that validates the ObjectId type.
+        """
+        return core_schema.no_info_wrap_validator_function(
+            cls.validate,
+            core_schema.str_schema(),
+            serialization=core_schema.to_string_ser_schema(),
+        )
 
     @classmethod
-    def validate(cls, v):
-        if not ObjectId.is_valid(v):
-            raise ValueError("Invalid ObjectId")
-        return ObjectId(v)
+    def validate(cls, value):
+        """Validate that the value is a valid ObjectId"""
+        if isinstance(value, ObjectId):
+            return value
+        if isinstance(value, str) and ObjectId.is_valid(value):
+            return ObjectId(value)
+        raise ValueError("Invalid ObjectId")
 
     @classmethod
-    def __modify_schema__(cls, field_schema):
-        field_schema.update(type="string")
+    def __get_pydantic_json_schema__(
+        cls, schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        """Return JSON schema for ObjectId (appears as string in API docs)"""
+        return {"type": "string", "format": "objectid"}
 
 
 class ConversationBase(BaseModel):
